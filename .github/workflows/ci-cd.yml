@@ -359,7 +359,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           source: docker-compose.prod.yml
-          target: /opt/mern
+          target: /home/ubuntu/mern
           overwrite: true
 
       - name: Pull, scan, and restart
@@ -372,13 +372,13 @@ jobs:
           envs: IMAGE_TAG,DOCKERHUB_USERNAME,DOCKERHUB_TOKEN
           script: |
             set -eu
-            cd /opt/mern
+            cd /home/ubuntu/mern
             echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
             trap 'docker logout >/dev/null 2>&1 || true' EXIT
             export IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
             docker compose -f docker-compose.prod.yml pull
-            trivy image --exit-code 0 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-backend:$IMAGE_TAG" | tee /opt/mern/trivy-backend.txt || true
-            trivy image --exit-code 0 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-frontend:$IMAGE_TAG" | tee /opt/mern/trivy-frontend.txt || true
+            trivy image --exit-code 0 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-backend:$IMAGE_TAG" | tee /home/ubuntu/mern/trivy-backend.txt || true
+            trivy image --exit-code 0 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-frontend:$IMAGE_TAG" | tee /home/ubuntu/mern/trivy-frontend.txt || true
             docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 120 --remove-orphans
             docker image prune -f
         env:
