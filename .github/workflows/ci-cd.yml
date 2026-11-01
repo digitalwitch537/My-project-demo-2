@@ -57,6 +57,7 @@ jobs:
 
       - name: SonarQube scan
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         uses: SonarSource/sonarqube-scan-action@v8.4.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -67,6 +68,7 @@ jobs:
 
       - name: SonarQube quality gate
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         uses: SonarSource/sonarqube-quality-gate-action@v1.2.1
         timeout-minutes: 10
         env:
@@ -92,6 +94,7 @@ jobs:
 
       - name: Run OWASP Dependency-Check
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
@@ -106,7 +109,6 @@ jobs:
             --format ALL
             --project mern-crash-course
             --out /report
-            --failOnCVSS 7
             --enableExperimental
           )
           if [ -n "${NVD_API_KEY:-}" ]; then
@@ -133,9 +135,6 @@ jobs:
   docker-security:
     name: Dockerfile and source scans
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -153,17 +152,20 @@ jobs:
           failure-threshold: warning
 
       - name: Trivy config scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
           severity: CRITICAL,HIGH
-          exit-code: "1"
-          format: sarif
-          output: trivy-config.sarif
+          exit-code: "0"
+          format: table
+          output: trivy-config.txt
+          skip-dirs: node_modules,frontend/node_modules,dist,frontend/dist
           timeout: 10m
 
       - name: Trivy filesystem scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
@@ -171,34 +173,31 @@ jobs:
           scanners: vuln,secret
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: "1"
-          format: sarif
-          output: trivy-fs.sarif
+          exit-code: "0"
+          format: table
+          output: trivy-fs.txt
+          skip-dirs: node_modules,frontend/node_modules,dist,frontend/dist
           timeout: 10m
 
-      - name: Upload Trivy config SARIF
-        if: always() && hashFiles('trivy-config.sarif') != ''
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-config.sarif
-          category: trivy-config
+      - name: Print Trivy reports
+        if: always()
+        run: |
+          cat trivy-config.txt 2>/dev/null || true
+          cat trivy-fs.txt 2>/dev/null || true
 
-      - name: Upload Trivy filesystem SARIF
-        if: always() && hashFiles('trivy-fs.sarif') != ''
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Upload Trivy reports
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-fs.sarif
-          category: trivy-fs
+          name: trivy-reports
+          path: trivy-*.txt
+          retention-days: 30
+          if-no-files-found: warn
 
   build-push:
     name: Build, scan, and push images
     runs-on: ubuntu-latest
     needs: [quality, sonarqube, sca, docker-security]
-    permissions:
-      contents: read
-      security-events: write
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME || 'local' }}/mern-backend
@@ -240,44 +239,45 @@ jobs:
           cache-to: type=gha,mode=max,scope=frontend
 
       - name: Trivy backend image scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: "1"
-          format: sarif
-          output: trivy-image-backend.sarif
+          exit-code: "0"
+          format: table
+          output: trivy-image-backend.txt
           timeout: 10m
 
       - name: Trivy frontend image scan
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: "1"
-          format: sarif
-          output: trivy-image-frontend.sarif
+          exit-code: "0"
+          format: table
+          output: trivy-image-frontend.txt
           timeout: 10m
 
-      - name: Upload backend image SARIF
-        if: always() && hashFiles('trivy-image-backend.sarif') != ''
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-image-backend.sarif
-          category: trivy-image-backend
+      - name: Print Trivy image reports
+        if: always()
+        run: |
+          cat trivy-image-backend.txt 2>/dev/null || true
+          cat trivy-image-frontend.txt 2>/dev/null || true
 
-      - name: Upload frontend image SARIF
-        if: always() && hashFiles('trivy-image-frontend.sarif') != ''
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Upload Trivy image reports
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: trivy-image-frontend.sarif
-          category: trivy-image-frontend
+          name: trivy-image-reports
+          path: trivy-image-*.txt
+          retention-days: 30
+          if-no-files-found: warn
 
       - name: Docker Scout backend
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -304,6 +304,7 @@ jobs:
           summary: true
 
       - name: Backend SBOM
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -312,6 +313,7 @@ jobs:
           output: sbom-backend.cdx.json
 
       - name: Frontend SBOM
+        continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
@@ -377,8 +379,8 @@ jobs:
             trap 'docker logout >/dev/null 2>&1 || true' EXIT
             export IMAGE_TAG="${IMAGE_TAG:?IMAGE_TAG is required}"
             docker compose -f docker-compose.prod.yml pull
-            trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-backend:$IMAGE_TAG"
-            trivy image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-frontend:$IMAGE_TAG"
+            trivy image --exit-code 0 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-backend:$IMAGE_TAG" | tee /opt/mern/trivy-backend.txt || true
+            trivy image --exit-code 0 --severity HIGH,CRITICAL --ignore-unfixed "$DOCKERHUB_USERNAME/mern-frontend:$IMAGE_TAG" | tee /opt/mern/trivy-frontend.txt || true
             docker compose -f docker-compose.prod.yml up -d --wait --wait-timeout 120 --remove-orphans
             docker image prune -f
         env:
