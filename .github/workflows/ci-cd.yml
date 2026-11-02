@@ -392,6 +392,50 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
+  observability:
+    name: Deploy observability stack
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    environment: production
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Copy observability config to EC2
+        uses: appleboy/scp-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: observability
+          target: /home/ubuntu/mern
+          overwrite: true
+
+      - name: Start observability stack
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          command_timeout: 20m
+          envs: GRAFANA_ADMIN_PASSWORD,EC2_HOST,GRAFANA_ROOT_URL
+          script: |
+            set -eu
+            cd /home/ubuntu/mern/observability
+            export GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}"
+            export GRAFANA_ROOT_URL="${GRAFANA_ROOT_URL:-http://${EC2_HOST}:3000/}"
+            docker compose pull
+            docker compose up -d --wait --wait-timeout 180 --remove-orphans
+            docker image prune -f
+        env:
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          GRAFANA_ROOT_URL: ${{ vars.GRAFANA_ROOT_URL }}
+
   dast:
     name: OWASP ZAP baseline DAST
     runs-on: ubuntu-latest

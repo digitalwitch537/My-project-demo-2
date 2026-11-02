@@ -92,4 +92,5 @@ volumes:
 
 networks:
   app:
+    name: mern_app
     driver: bridge

@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 
 import { connectDB } from "./config/db.js";
+import { metricsMiddleware, register } from "./metrics.js";
 
 import productRoutes from "./routes/product.route.js";
 
@@ -15,6 +16,13 @@ const PORT = process.env.PORT || 5000;
 const __dirname = path.resolve();
 
 app.use(express.json()); // allows us to accept JSON data in the req.body
+
+app.get("/metrics", async (req, res) => {
+	res.set("Content-Type", register.contentType);
+	res.end(await register.metrics());
+});
+
+app.use(metricsMiddleware);
 
 app.get("/api/health", (req, res) => {
 	res.status(200).json({ status: "ok" });
