@@ -1,0 +1,96 @@
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pytest
+
+from app.clients import Sample
+from app.config import AppConfig, MetricConfig, SlackConfig
+from app.service import AiopsService
+
+
+class FakePrometheus:
+    def __init__(self, values: list[float]) -> None:
+        self.values = list(values)
+
+    def query(self, expr: str, at: float | None = None) -> Sample:
+        return Sample(value=self.values.pop(0), labels={"job": "mern-backend"})
+
+
+def make_config(tmp_path: Path) -> AppConfig:
+    metric = MetricConfig(
+        id="api_request_rate",
+        title="API request rate",
+        source="prometheus",
+        query="sum(rate(http_requests_total[5m]))",
+        unit="req/s",
+        direction="both",
+        warning_threshold=None,
+        critical_threshold=None,
+        z_threshold=3.0,
+        critical_z_threshold=4.5,
+        min_samples=2,
+        baseline_window=5,
+        consecutive_breaches=1,
+        cooldown_seconds=0,
+        enabled=True,
+    )
+    return AppConfig(
+        prometheus_url="http://prometheus:9090",
+        loki_url="http://loki:3100",
+        grafana_root_url="",
+        data_dir=tmp_path,
+        poll_interval_seconds=60,
+        history_size=10,
+        baseline_window=5,
+        min_samples=2,
+        consecutive_breaches=1,
+        cooldown_seconds=0,
+        request_timeout_seconds=1.0,
+        results_max_bytes=1024 * 1024,
+        anomalies_max_bytes=1024 * 1024,
+        slack=SlackConfig(
+            enabled=True,
+            dry_run=True,
+            webhook_url="",
+            timeout_seconds=1.0,
+            channel="",
+        ),
+        metrics=(metric,),
+    )
+
+
+def test_service_warms_up_then_alerts_and_persists(tmp_path: Path) -> None:
+    service = AiopsService(make_config(tmp_path))
+    service.prometheus = FakePrometheus([1.0, 2.0, 3.0])
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    first = service.run_once(start)
+    second = service.run_once(start + timedelta(minutes=1))
+    third = service.run_once(start + timedelta(minutes=2))
+
+    assert first[0]["status"] == "warming_up"
+    assert second[0]["status"] == "warming_up"
+    assert third[0]["status"] == "warning"
+    assert third[0]["alert_sent"] is True
+    assert third[0]["features"]["z_score"] == pytest.approx(3.0)
+
+    assert len((tmp_path / "results.jsonl").read_text(encoding="utf-8").splitlines()) == 3
+    assert len((tmp_path / "anomalies.jsonl").read_text(encoding="utf-8").splitlines()) == 1
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    metric_state = state["metrics"]["api_request_rate"]
+    assert len(metric_state["history"]) == 3
+    assert metric_state["consecutive_breaches"] == 1
+    assert (tmp_path / "latest.json").exists()
+    assert (tmp_path / "heartbeat.json").exists()
+
+
+def test_service_records_no_data(tmp_path: Path) -> None:
+    service = AiopsService(make_config(tmp_path))
+    service.prometheus.query = lambda expr, at=None: None
+
+    results = service.run_once(datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+    assert results[0]["status"] == "no_data"
+    assert not (tmp_path / "anomalies.jsonl").exists()

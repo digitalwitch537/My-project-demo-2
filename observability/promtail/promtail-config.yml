@@ -30,6 +30,8 @@ scrape_configs:
       - source_labels:
           - __meta_docker_container_log_stream
         target_label: stream
+      - target_label: job
+        replacement: docker
       - source_labels:
           - __meta_docker_container_label_com_docker_compose_service
         target_label: service
@@ -56,3 +58,8 @@ scrape_configs:
         labels:
           job: system
           __path__: /var/log/*.log
+      - targets:
+          - localhost
+        labels:
+          job: system
+          __path__: /var/log/syslog

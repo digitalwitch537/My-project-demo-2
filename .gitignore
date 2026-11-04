@@ -14,6 +14,13 @@ dist-ssr
 
 .env
 
+# AIOps
+aiops/.venv
+aiops/.pytest_cache
+aiops/**/__pycache__
+aiops/data/*
+!aiops/data/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

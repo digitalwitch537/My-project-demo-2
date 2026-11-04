@@ -1,0 +1,168 @@
+prometheus_url: http://prometheus:9090
+loki_url: http://loki:3100
+grafana_root_url: ""
+data_dir: /app/data
+
+service:
+  poll_interval_seconds: 60
+  history_size: 1440
+  baseline_window: 60
+  min_samples: 15
+  consecutive_breaches: 2
+  cooldown_seconds: 900
+  request_timeout_seconds: 10
+  results_max_bytes: 5242880
+  anomalies_max_bytes: 5242880
+
+slack:
+  enabled: true
+  dry_run: false
+  timeout_seconds: 10
+  channel: ""
+
+metrics:
+  - id: api_request_rate
+    title: API request rate
+    source: prometheus
+    query: 'sum(rate(http_requests_total{job="mern-backend"}[5m]))'
+    unit: req/s
+    direction: both
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: api_4xx_rate
+    title: API 4xx rate
+    source: prometheus
+    query: 'sum(rate(http_requests_total{job="mern-backend",status=~"4.."}[5m])) or vector(0)'
+    unit: req/s
+    direction: above
+    warning_threshold: 1
+    critical_threshold: 5
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: api_5xx_rate
+    title: API 5xx rate
+    source: prometheus
+    query: 'sum(rate(http_requests_total{job="mern-backend",status=~"5.."}[5m])) or vector(0)'
+    unit: req/s
+    direction: above
+    warning_threshold: 1
+    critical_threshold: 5
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: api_error_rate
+    title: API 5xx error rate
+    source: prometheus
+    query: '100 * sum(rate(http_requests_total{job="mern-backend",status=~"5.."}[5m])) / clamp_min(sum(rate(http_requests_total{job="mern-backend"}[5m])), 0.001) or vector(0)'
+    unit: percent
+    direction: above
+    warning_threshold: 2
+    critical_threshold: 5
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: api_p95_latency
+    title: API p95 latency
+    source: prometheus
+    query: 'histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="mern-backend"}[5m])))'
+    unit: s
+    direction: above
+    warning_threshold: 1
+    critical_threshold: 3
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: node_cpu_usage
+    title: Node CPU usage
+    source: prometheus
+    query: '100 * (1 - avg(rate(node_cpu_seconds_total{job="node-exporter", mode="idle"}[5m])))'
+    unit: percent
+    direction: above
+    warning_threshold: 80
+    critical_threshold: 90
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: node_memory_usage
+    title: Node memory usage
+    source: prometheus
+    query: '100 * (1 - node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})'
+    unit: percent
+    direction: above
+    warning_threshold: 85
+    critical_threshold: 95
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: node_disk_usage
+    title: Node disk usage
+    source: prometheus
+    query: '100 * (1 - node_filesystem_avail_bytes{job="node-exporter", mountpoint="/", fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node-exporter", mountpoint="/", fstype!~"tmpfs|overlay|squashfs"})'
+    unit: percent
+    direction: above
+    warning_threshold: 80
+    critical_threshold: 90
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: network_receive
+    title: Network receive
+    source: prometheus
+    query: 'sum(rate(node_network_receive_bytes_total{job="node-exporter", device!~"lo|veth.*|br-.*|docker.*"}[5m]))'
+    unit: B/s
+    direction: both
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: network_transmit
+    title: Network transmit
+    source: prometheus
+    query: 'sum(rate(node_network_transmit_bytes_total{job="node-exporter", device!~"lo|veth.*|br-.*|docker.*"}[5m]))'
+    unit: B/s
+    direction: both
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: backend_target_up
+    title: Backend scrape target
+    source: prometheus
+    query: 'up{job="mern-backend"}'
+    unit: ""
+    direction: below
+    warning_threshold: 0.99
+    critical_threshold: 0.5
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: nginx_request_rate
+    title: Nginx request rate
+    source: loki
+    query: 'sum(rate({job="docker", container="mern-frontend", stream="stdout", status=~"2..|3..|4..|5.."}[5m]))'
+    unit: req/s
+    direction: both
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: nginx_error_rate
+    title: Nginx 5xx error rate
+    source: loki
+    query: '100 * sum(rate({job="docker", container="mern-frontend", status=~"5.."}[5m])) / clamp_min(sum(rate({job="docker", container="mern-frontend", status=~"2..|3..|4..|5.."}[5m])), 0.001) or on() vector(0)'
+    unit: percent
+    direction: above
+    warning_threshold: 2
+    critical_threshold: 5
+    z_threshold: 3.0
+    critical_z_threshold: 4.5
+
+  - id: nginx_p95_latency
+    title: Nginx p95 latency
+    source: loki
+    query: 'quantile_over_time(0.95, {job="docker", container="mern-frontend", stream="stdout"} | json | unwrap request_time [5m])'
+    unit: s
+    direction: above
+    warning_threshold: 1
+    critical_threshold: 3
+    z_threshold: 3.0
+    critical_z_threshold: 4.5

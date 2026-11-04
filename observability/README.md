@@ -7,7 +7,7 @@ Grafana, Prometheus, Loki, Promtail, and node-exporter for the MERN app.
 - Backend API metrics from `backend:5000/metrics`
 - Nginx access-log metrics for all frontend/API traffic
 - Frontend, backend, and Mongo container logs through the Docker socket
-- Host logs from `/var/log/*.log`
+- Host logs from `/var/log/*.log` and `/var/log/syslog`
 - Host CPU, memory, disk, and network metrics
 
 Nginx metrics are derived from JSON access logs in Loki. There is no separate
@@ -84,6 +84,6 @@ docker run --rm --network mern_app curlimages/curl -s http://backend:5000/metric
   format change, then check Promtail logs for the `mern-frontend` container.
 - Docker logs missing: confirm the container names still match the Promtail
   `name` filter (`mern-frontend`, `mern-backend`, `mern-mongo`).
-- No system logs: verify `/var/log/*.log` exists on the host and Promtail has
-  read access.
+- No system logs: verify `/var/log/*.log` and `/var/log/syslog` exist on the
+  host and Promtail has read access.
 - Grafana login redirects to the wrong host: set `GRAFANA_ROOT_URL` in `.env`.
