@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.clients import Sample
-from app.config import AppConfig, MetricConfig, SlackConfig
+from app.config import AiModelConfig, AppConfig, MetricConfig, SlackConfig
 from app.service import AiopsService
 
 
@@ -56,13 +56,30 @@ def make_config(tmp_path: Path) -> AppConfig:
             timeout_seconds=1.0,
             channel="",
         ),
+        ai_model=AiModelConfig(
+            enabled=True,
+            url="http://ai-model:8090",
+            timeout_seconds=1.0,
+            window_seconds=360,
+        ),
         metrics=(metric,),
     )
+
+
+class FakeAiModel:
+    def __init__(self) -> None:
+        self.payloads: list[dict] = []
+
+    def trigger(self, payload: dict) -> bool:
+        self.payloads.append(payload)
+        return True
 
 
 def test_service_warms_up_then_alerts_and_persists(tmp_path: Path) -> None:
     service = AiopsService(make_config(tmp_path))
     service.prometheus = FakePrometheus([1.0, 2.0, 3.0])
+    fake_ai_model = FakeAiModel()
+    service.ai_model = fake_ai_model
     start = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
     first = service.run_once(start)
@@ -73,7 +90,11 @@ def test_service_warms_up_then_alerts_and_persists(tmp_path: Path) -> None:
     assert second[0]["status"] == "warming_up"
     assert third[0]["status"] == "warning"
     assert third[0]["alert_sent"] is True
+    assert third[0]["ai_model_triggered"] is True
     assert third[0]["features"]["z_score"] == pytest.approx(3.0)
+    assert len(fake_ai_model.payloads) == 1
+    assert fake_ai_model.payloads[0]["event_id"].startswith("api_request_rate:")
+    assert fake_ai_model.payloads[0]["related_metrics"][0]["id"] == "api_request_rate"
 
     assert len((tmp_path / "results.jsonl").read_text(encoding="utf-8").splitlines()) == 3
     assert len((tmp_path / "anomalies.jsonl").read_text(encoding="utf-8").splitlines()) == 1

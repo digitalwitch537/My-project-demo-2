@@ -21,6 +21,13 @@ aiops/**/__pycache__
 aiops/data/*
 !aiops/data/.gitkeep
 
+# AI model
+ai-model/.venv
+ai-model/.pytest_cache
+ai-model/**/__pycache__
+ai-model/data/*
+!ai-model/data/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

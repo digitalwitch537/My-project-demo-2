@@ -1,0 +1,38 @@
+prometheus_url: http://prometheus:9090
+loki_url: http://loki:3100
+grafana_root_url: ""
+data_dir: /app/data
+
+server:
+  host: 0.0.0.0
+  port: 8090
+
+worker:
+  poll_seconds: 1
+
+collection:
+  window_seconds: 360
+  step_seconds: 15
+  request_timeout_seconds: 15
+  max_metric_points: 12
+  max_log_lines: 500
+  max_log_chars: 20000
+  max_log_line_chars: 1200
+  log_queries:
+    - '{job="docker", container=~"mern-backend|mern-frontend|mern-mongo"}'
+    - '{job="system"}'
+
+ollama:
+  url: http://ollama:11434
+  model: gemma3:4b
+  timeout_seconds: 180
+  num_ctx: 16384
+  num_predict: 800
+  temperature: 0.1
+  keep_alive: 5m
+
+slack:
+  enabled: true
+  dry_run: false
+  timeout_seconds: 10
+  channel: ""

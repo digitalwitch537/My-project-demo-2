@@ -33,6 +33,12 @@ npm run build
 npm run start
 ```
 
+### Observability and AI operations
+
+- `observability/README.md` covers Prometheus, Loki, Promtail, Grafana, node-exporter, and dashboards.
+- `aiops/README.md` covers anomaly detection, Slack threshold alerts, and result storage.
+- `ai-model/README.md` covers Ollama, AI root-cause analysis, the internal HTTP API, and Slack RCA delivery.
+
 ### I'll see you in the next one! 🚀
 
 

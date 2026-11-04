@@ -18,6 +18,14 @@ class SlackConfig:
 
 
 @dataclass(frozen=True)
+class AiModelConfig:
+    enabled: bool
+    url: str
+    timeout_seconds: float
+    window_seconds: int
+
+
+@dataclass(frozen=True)
 class MetricConfig:
     id: str
     title: str
@@ -52,6 +60,7 @@ class AppConfig:
     results_max_bytes: int
     anomalies_max_bytes: int
     slack: SlackConfig
+    ai_model: AiModelConfig
     metrics: tuple[MetricConfig, ...]
 
 
@@ -135,6 +144,29 @@ def load_config(path: str | Path) -> AppConfig:
         channel=os.getenv("SLACK_CHANNEL", str(slack_raw.get("channel", ""))),
     )
 
+    ai_model_raw = raw.get("ai_model") or {}
+    ai_model = AiModelConfig(
+        enabled=_as_bool(
+            os.getenv("AI_MODEL_ENABLED"),
+            _as_bool(ai_model_raw.get("enabled"), False),
+        ),
+        url=os.getenv(
+            "AI_MODEL_URL", str(ai_model_raw.get("url", "http://ai-model:8090"))
+        ).rstrip("/"),
+        timeout_seconds=float(
+            os.getenv(
+                "AI_MODEL_TIMEOUT_SECONDS",
+                ai_model_raw.get("timeout_seconds", 5),
+            )
+        ),
+        window_seconds=int(
+            os.getenv(
+                "AI_MODEL_WINDOW_SECONDS",
+                ai_model_raw.get("window_seconds", 360),
+            )
+        ),
+    )
+
     return AppConfig(
         prometheus_url=os.getenv(
             "PROMETHEUS_URL", str(raw.get("prometheus_url", "http://prometheus:9090"))
@@ -184,5 +216,6 @@ def load_config(path: str | Path) -> AppConfig:
             )
         ),
         slack=slack,
+        ai_model=ai_model,
         metrics=tuple(metrics),
     )

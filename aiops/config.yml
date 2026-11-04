@@ -20,6 +20,12 @@ slack:
   timeout_seconds: 10
   channel: ""
 
+ai_model:
+  enabled: true
+  url: http://ai-model:8090
+  timeout_seconds: 5
+  window_seconds: 360
+
 metrics:
   - id: api_request_rate
     title: API request rate

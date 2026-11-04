@@ -41,6 +41,14 @@ A metric must breach for `consecutive_breaches` consecutive checks before an ale
 
 The service does not evaluate statistics until `min_samples` baseline samples exist. Until then, results are marked `warming_up`.
 
+## AI root cause analysis
+
+When an alert is due and `ai_model.enabled` is true, `aiops` also sends the alert and all enabled metric definitions to the `ai-model` service. The AI service collects Prometheus/Loki evidence, asks a local Ollama model for a root cause, and posts a separate RCA message to Slack.
+
+The AI trigger does not block the alert result. If `ai-model` is unavailable, the Slack threshold alert is still sent, the result includes `ai_model_triggered: false`, and a warning is logged. Set `AI_MODEL_ENABLED=false` when running `aiops` without the AI-model stack.
+
+Repeated alerts for the same metric reuse the normal cooldown logic. Each alert gets a unique `event_id`, and the AI service de-duplicates repeated deliveries.
+
 ## Stored files
 
 All files are written under `AIOPS_DATA_DIR`, which is `/app/data` in Docker:
@@ -96,6 +104,10 @@ Copy `.env.example` to `.env` for local Docker use.
 | `PROMETHEUS_URL` | `http://prometheus:9090` | Prometheus API base URL |
 | `LOKI_URL` | `http://loki:3100` | Loki API base URL |
 | `GRAFANA_ROOT_URL` | empty | Used to build the dashboard link in Slack alerts |
+| `AI_MODEL_ENABLED` | `true` | Submit due alerts to the AI-model service |
+| `AI_MODEL_URL` | `http://ai-model:8090` | AI-model service base URL |
+| `AI_MODEL_TIMEOUT_SECONDS` | `5` | AI-model submission timeout |
+| `AI_MODEL_WINDOW_SECONDS` | `360` | Evidence window requested from AI-model |
 | `SLACK_WEBHOOK_URL` | empty | Slack incoming webhook URL |
 | `SLACK_DRY_RUN` | `false` | Log alerts without sending them |
 | `SLACK_CHANNEL` | empty | Optional Slack channel override |
@@ -112,7 +124,7 @@ Keep `SLACK_WEBHOOK_URL` out of git. In CI, store it as the GitHub secret `SLACK
 
 ## Run with Docker
 
-The observability stack must be running first because this service joins the external `mern-observability_observability` network.
+The observability stack must be running first because this service joins the external `mern-observability_observability` network. Start `ai-model` before `aiops` when `AI_MODEL_ENABLED=true`.
 
 ```bash
 cd aiops
@@ -154,6 +166,7 @@ Run against local observability endpoints:
 $env:PROMETHEUS_URL='http://localhost:9090'
 $env:LOKI_URL='http://localhost:3100'
 $env:SLACK_DRY_RUN='true'
+$env:AI_MODEL_ENABLED='false'
 $env:AIOPS_DATA_DIR='./data'
 python main.py
 ```
@@ -180,8 +193,8 @@ Test Slack without sending a real alert:
 SLACK_DRY_RUN=true docker compose -f aiops/docker-compose.yml up -d --force-recreate aiops
 ```
 
-When `heartbeat.json` is updating and `results.jsonl` is growing, the detection loop is working.
+When `heartbeat.json` is updating and `results.jsonl` is growing, the detection loop is working. When an alert fires, check `ai_model_triggered` in the result and inspect `ai-model/data/analyses.jsonl` for the RCA.
 
 ## CI deployment
 
-The `aiops` GitHub Actions job runs after `observability`, copies this folder to `/home/ubuntu/mern/aiops`, and starts the Compose service. Add the repository secret `SLACK_WEBHOOK_URL` before enabling Slack delivery.
+The `ai-model` GitHub Actions job runs after `observability`, copies that folder to `/home/ubuntu/mern/ai-model`, pulls the Ollama model, and starts the AI-model service. The `aiops` job runs after `ai-model`, copies this folder to `/home/ubuntu/mern/aiops`, and starts this Compose service. Add the repository secret `SLACK_WEBHOOK_URL` before enabling Slack delivery for either service.

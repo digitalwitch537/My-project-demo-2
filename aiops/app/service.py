@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from .ai_model import AiModelClient
 from .clients import LokiClient, PrometheusClient, Sample
 from .config import AppConfig, MetricConfig
 from .detector import evaluate
@@ -43,6 +44,14 @@ class AiopsService:
             timeout_seconds=config.slack.timeout_seconds,
             channel=config.slack.channel,
             grafana_root_url=config.grafana_root_url,
+        )
+        self.ai_model = (
+            AiModelClient(
+                config.ai_model.url,
+                config.ai_model.timeout_seconds,
+            )
+            if config.ai_model.enabled
+            else None
         )
         self.state = self.state_store.load()
         self.stop_event = threading.Event()
@@ -219,11 +228,50 @@ class AiopsService:
             else metric.z_threshold * 1.5,
         }
 
+        if alert_due and self.ai_model is not None:
+            result["ai_model_triggered"] = self.ai_model.trigger(
+                self._ai_model_payload(metric, result, timestamp, epoch)
+            )
+
         history.append({"timestamp": timestamp, "epoch": epoch, "value": sample.value})
         if len(history) > self.config.history_size:
             del history[: len(history) - self.config.history_size]
 
         return result
+
+    def _ai_model_payload(
+        self,
+        metric: MetricConfig,
+        result: dict[str, Any],
+        timestamp: str,
+        epoch: float,
+    ) -> dict[str, Any]:
+        event_id = f"{metric.id}:{int(epoch)}:{result.get('status', 'unknown')}"
+        return {
+            "event_id": event_id,
+            "triggered_at": timestamp,
+            "window_seconds": self.config.ai_model.window_seconds,
+            "metric": {
+                "id": metric.id,
+                "title": metric.title,
+                "source": metric.source,
+                "query": metric.query,
+                "unit": metric.unit,
+            },
+            "result": result,
+            "related_metrics": [
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "source": item.source,
+                    "query": item.query,
+                    "unit": item.unit,
+                }
+                for item in self.config.metrics
+                if item.enabled
+            ],
+            "grafana_root_url": self.config.grafana_root_url,
+        }
 
     def _query(self, metric: MetricConfig, epoch: float) -> Sample | None:
         if metric.source == "prometheus":

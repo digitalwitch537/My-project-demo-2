@@ -1,0 +1,80 @@
+name: mern-ai-model
+
+services:
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.40.14}
+    container_name: mern-ollama
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_KEEP_ALIVE: 5m
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - observability
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "OLLAMA_HOST=127.0.0.1:11434 ollama list >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ai-model:
+    build:
+      context: .
+    container_name: mern-ai-model
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      AI_MODEL_CONFIG: /app/config.yml
+      AI_MODEL_DATA_DIR: /app/data
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://prometheus:9090}
+      LOKI_URL: ${LOKI_URL:-http://loki:3100}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:4b}
+      GRAFANA_ROOT_URL: ${GRAFANA_ROOT_URL:-}
+      SLACK_ENABLED: ${SLACK_ENABLED:-true}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SLACK_DRY_RUN: ${SLACK_DRY_RUN:-false}
+      SLACK_TIMEOUT_SECONDS: ${SLACK_TIMEOUT_SECONDS:-10}
+      SLACK_CHANNEL: ${SLACK_CHANNEL:-}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+      - ./data:/app/data
+    networks:
+      - observability
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  observability:
+    external: true
+    name: mern-observability_observability
+
+volumes:
+  ollama_data:
