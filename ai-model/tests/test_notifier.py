@@ -23,7 +23,7 @@ def analysis_result() -> dict:
         "event_id": "event-1",
         "status": "analyzed",
         "model": "gemma3:4b",
-        "window_seconds": 360,
+        "window_seconds": 900,
         "log_count": 2,
         "analysis": {
             "summary": "Database pool exhausted",
@@ -75,7 +75,7 @@ def test_notifier_sends_structured_slack_message() -> None:
     )
 
 
-def test_notifier_marks_fallback_analysis() -> None:
+def test_notifier_does_not_send_generic_fallback_analysis() -> None:
     session = FakeSession()
     result = analysis_result()
     result["status"] = "fallback"
@@ -89,8 +89,36 @@ def test_notifier_marks_fallback_analysis() -> None:
         session=session,
     )
 
-    assert notifier.send_analysis(alert_job(), result) is True
-    assert "AI RCA UNAVAILABLE" in session.calls[0]["json"]["text"]
+    assert notifier.send_analysis(alert_job(), result) is False
+    assert session.calls == []
+
+
+def test_notifier_formats_correlated_incident_rca() -> None:
+    session = FakeSession()
+    job = alert_job()
+    job["payload"]["incident"] = {
+        "id": "incident-1700000000",
+        "metric_count": 5,
+        "alerts": [{"metric": "api_5xx_rate"} for _ in range(5)],
+    }
+    notifier = SlackNotifier(
+        webhook_url="https://hooks.slack.test/abc",
+        enabled=True,
+        dry_run=False,
+        timeout_seconds=1.0,
+        channel="",
+        grafana_root_url="",
+        session=session,
+    )
+
+    assert notifier.send_analysis(job, analysis_result()) is True
+    payload = session.calls[0]["json"]
+    assert "Correlated incident (5 metrics)" in payload["text"]
+    assert any(
+        "incident-1700000000" in field.get("text", "")
+        for block in payload["blocks"]
+        for field in block.get("fields", [])
+    )
 
 
 def test_notifier_uses_dashboard_url_from_alert_payload() -> None:

@@ -117,9 +117,27 @@ def parse_analysis(content: str) -> Analysis:
             "needs_human": _to_bool(payload.get("needs_human", True)),
             "missing_data": _to_list(payload.get("missing_data")),
         }
+        if not normalized["summary"]:
+            raise AnalysisParseError("response is missing a summary")
+        if not normalized["root_cause"]:
+            raise AnalysisParseError("response is missing a root_cause")
         return Analysis.model_validate(normalized)
     except (ValidationError, TypeError, ValueError) as exc:
         raise AnalysisParseError(f"response does not match schema: {exc}") from exc
+
+
+def _trim_metric_evidence(
+    metric_evidence: list[dict[str, Any]],
+    max_points: int = 8,
+) -> list[dict[str, Any]]:
+    trimmed: list[dict[str, Any]] = []
+    for item in metric_evidence:
+        reduced = dict(item)
+        points = reduced.get("points")
+        if isinstance(points, list):
+            reduced["points"] = points[-max(1, max_points):]
+        trimmed.append(reduced)
+    return trimmed
 
 
 def _fallback_analysis(
@@ -133,8 +151,8 @@ def _fallback_analysis(
     if reason:
         evidence.append(reason)
     return Analysis(
-        summary="Automated root cause analysis could not complete.",
-        root_cause="Root cause was not determined automatically.",
+        summary="AI RCA did not produce a validated analysis.",
+        root_cause="No model-validated root cause was produced; see model_error and evidence.",
         confidence=0.0,
         evidence=evidence,
         remediation=[
@@ -235,6 +253,25 @@ class Analyzer:
                         model_error = None
                     except Exception as repair_exc:
                         model_error = f"{model_error}; repair failed: {repair_exc}"
+                else:
+                    try:
+                        reduced_system, reduced_prompt = build_prompt(
+                            payload,
+                            _trim_metric_evidence(metric_evidence),
+                            logs[-200:],
+                            collection_errors,
+                            window_seconds,
+                        )
+                        raw_response = self.ollama.chat(
+                            reduced_system, reduced_prompt
+                        )
+                        analysis = parse_analysis(raw_response)
+                        model_error = None
+                    except Exception as retry_exc:
+                        model_error = (
+                            f"{model_error}; reduced-evidence retry failed: "
+                            f"{retry_exc}"
+                        )
 
         if analysis is None:
             analysis = _fallback_analysis(

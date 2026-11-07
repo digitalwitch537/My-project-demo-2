@@ -21,7 +21,7 @@ def config(tmp_path: Path) -> AppConfig:
         port=8090,
         worker_poll_seconds=0.01,
         collection=CollectionConfig(
-            window_seconds=360,
+            window_seconds=900,
             step_seconds=15,
             request_timeout_seconds=1.0,
             max_metric_points=12,
@@ -54,7 +54,7 @@ def alert_payload() -> dict:
     return {
         "event_id": "api_5xx_rate:1700000000:critical",
         "triggered_at": "2026-01-01T00:06:00+00:00",
-        "window_seconds": 360,
+        "window_seconds": 900,
         "metric": {
             "id": "api_5xx_rate",
             "title": "API 5xx rate",

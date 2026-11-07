@@ -26,6 +26,17 @@ class AiModelConfig:
 
 
 @dataclass(frozen=True)
+class CorrelationConfig:
+    enabled: bool
+    window_seconds: int
+    min_distinct_metrics: int
+    max_related_metrics: int
+    resolve_after_seconds: int
+    require_critical: bool
+    suppress_single_alerts: bool
+
+
+@dataclass(frozen=True)
 class MetricConfig:
     id: str
     title: str
@@ -59,8 +70,10 @@ class AppConfig:
     request_timeout_seconds: float
     results_max_bytes: int
     anomalies_max_bytes: int
+    incidents_max_bytes: int
     slack: SlackConfig
     ai_model: AiModelConfig
+    correlation: CorrelationConfig
     metrics: tuple[MetricConfig, ...]
 
 
@@ -93,6 +106,7 @@ def load_config(path: str | Path) -> AppConfig:
     raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     service = raw.get("service") or {}
     slack_raw = raw.get("slack") or {}
+    correlation_raw = raw.get("correlation") or {}
 
     data_dir_raw = os.getenv("AIOPS_DATA_DIR", raw.get("data_dir", "/app/data"))
     data_dir = Path(data_dir_raw)
@@ -162,8 +176,47 @@ def load_config(path: str | Path) -> AppConfig:
         window_seconds=int(
             os.getenv(
                 "AI_MODEL_WINDOW_SECONDS",
-                ai_model_raw.get("window_seconds", 360),
+                ai_model_raw.get("window_seconds", 900),
             )
+        ),
+    )
+
+    correlation = CorrelationConfig(
+        enabled=_as_bool(
+            os.getenv("AIOPS_CORRELATION_ENABLED"),
+            _as_bool(correlation_raw.get("enabled"), True),
+        ),
+        window_seconds=int(
+            os.getenv(
+                "AIOPS_CORRELATION_WINDOW_SECONDS",
+                correlation_raw.get("window_seconds", 300),
+            )
+        ),
+        min_distinct_metrics=int(
+            os.getenv(
+                "AIOPS_CORRELATION_MIN_DISTINCT_METRICS",
+                correlation_raw.get("min_distinct_metrics", 5),
+            )
+        ),
+        max_related_metrics=int(
+            os.getenv(
+                "AIOPS_CORRELATION_MAX_RELATED_METRICS",
+                correlation_raw.get("max_related_metrics", 5),
+            )
+        ),
+        resolve_after_seconds=int(
+            os.getenv(
+                "AIOPS_CORRELATION_RESOLVE_AFTER_SECONDS",
+                correlation_raw.get("resolve_after_seconds", 300),
+            )
+        ),
+        require_critical=_as_bool(
+            os.getenv("AIOPS_CORRELATION_REQUIRE_CRITICAL"),
+            _as_bool(correlation_raw.get("require_critical"), False),
+        ),
+        suppress_single_alerts=_as_bool(
+            os.getenv("AIOPS_CORRELATION_SUPPRESS_SINGLE_ALERTS"),
+            _as_bool(correlation_raw.get("suppress_single_alerts"), True),
         ),
     )
 
@@ -215,7 +268,14 @@ def load_config(path: str | Path) -> AppConfig:
                 service.get("anomalies_max_bytes", 5242880),
             )
         ),
+        incidents_max_bytes=int(
+            os.getenv(
+                "AIOPS_INCIDENTS_MAX_BYTES",
+                service.get("incidents_max_bytes", 5242880),
+            )
+        ),
         slack=slack,
         ai_model=ai_model,
+        correlation=correlation,
         metrics=tuple(metrics),
     )

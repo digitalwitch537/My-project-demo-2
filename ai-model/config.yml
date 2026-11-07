@@ -11,23 +11,23 @@ worker:
   poll_seconds: 1
 
 collection:
-  window_seconds: 360
+  window_seconds: 900
   step_seconds: 15
   request_timeout_seconds: 15
-  max_metric_points: 12
-  max_log_lines: 500
-  max_log_chars: 20000
+  max_metric_points: 20
+  max_log_lines: 600
+  max_log_chars: 30000
   max_log_line_chars: 1200
   log_queries:
-    - '{job="docker", container=~"mern-backend|mern-frontend|mern-mongo"}'
+    - '{job="docker"}'
     - '{job="system"}'
 
 ollama:
   url: http://ollama:11434
   model: gemma3:4b
-  timeout_seconds: 180
-  num_ctx: 16384
-  num_predict: 800
+  timeout_seconds: 300
+  num_ctx: 20480
+  num_predict: 1200
   temperature: 0.1
   keep_alive: 5m
 

@@ -1,6 +1,6 @@
 # MERN AIOps Anomaly Detection
 
-The `aiops` service polls the existing observability stack every 60 seconds, extracts statistical features from each metric, detects abnormal behaviour, stores results on disk, and sends Slack alerts when thresholds are crossed.
+The `aiops` service polls the existing observability stack every 60 seconds, extracts statistical features from each metric, detects abnormal behaviour, correlates related metric breaches into incidents, stores results on disk, and sends Slack alerts when thresholds are crossed.
 
 ## What it monitors
 
@@ -41,13 +41,27 @@ A metric must breach for `consecutive_breaches` consecutive checks before an ale
 
 The service does not evaluate statistics until `min_samples` baseline samples exist. Until then, results are marked `warming_up`.
 
+## Incident correlation
+
+Correlation is enabled by default. Metric results are collected first, then grouped into an incident candidate:
+
+- A candidate starts when any metric is `breach_due`.
+- The candidate is evaluated after `window_seconds` (default `300` seconds).
+- At least `min_distinct_metrics` different metrics (default `5`) must have breached.
+- Repeated breaches from the same metric count once.
+- If fewer than 5 distinct metrics breached, Slack and AI are suppressed and the reason is stored in `state.json` under `correlation.last_suppressed`.
+- An incident is emitted at most once per candidate. It remains active until no qualifying metrics are seen for `resolve_after_seconds` (default `300` seconds).
+- Up to `max_related_metrics` alerts are included in the grouped message; the rest are counted in `omitted_count`.
+
+When an incident is emitted, `aiops` sends one grouped Slack alert, then triggers one AI RCA with the full incident timeline, all enabled metric definitions, and a 15-minute evidence window. Set `correlation.enabled: false` to restore individual per-metric alerts.
+
 ## AI root cause analysis
 
-When an alert is due and `ai_model.enabled` is true, `aiops` also sends the alert and all enabled metric definitions to the `ai-model` service. The AI service collects Prometheus/Loki evidence, asks a local Ollama model for a root cause, and posts a separate RCA message to Slack.
+When an incident is emitted and `ai_model.enabled` is true, `aiops` sends the incident, primary alert, correlated timeline, and all enabled metric definitions to the `ai-model` service. The AI service collects 15 minutes of Prometheus/Loki evidence, including all Docker and system logs, asks a local Ollama model for a root cause, and posts the RCA to Slack.
 
-The AI trigger does not block the alert result. If `ai-model` is unavailable, the Slack threshold alert is still sent, the result includes `ai_model_triggered: false`, and a warning is logged. Set `AI_MODEL_ENABLED=false` when running `aiops` without the AI-model stack.
+The AI trigger does not block the incident alert. If `ai-model` is unavailable, the grouped Slack incident alert is still sent, the result includes `ai_model_triggered: false`, and a warning is logged. Set `AI_MODEL_ENABLED=false` when running `aiops` without the AI-model stack.
 
-Repeated alerts for the same metric reuse the normal cooldown logic. Each alert gets a unique `event_id`, and the AI service de-duplicates repeated deliveries.
+Each incident gets a deterministic `event_id` of the form `incident:<incident-id>`, so repeated delivery is de-duplicated by the AI service.
 
 ## Stored files
 
@@ -58,10 +72,11 @@ All files are written under `AIOPS_DATA_DIR`, which is `/app/data` in Docker:
 | `state.json` | Rolling history, breach counters, and alert cooldown state used by the next detection cycle |
 | `results.jsonl` | One record per metric per 60-second cycle |
 | `anomalies.jsonl` | Only warning and critical records |
-| `latest.json` | Latest cycle snapshot for quick inspection |
+| `incidents.jsonl` | Emitted correlated incidents with alert delivery and AI trigger status |
+| `latest.json` | Latest cycle snapshot, including `incident` when one was emitted |
 | `heartbeat.json` | Last successful cycle timestamp |
 
-`state.json` is written atomically. JSONL files rotate at `results_max_bytes` and `anomalies_max_bytes`, keeping one `.1` backup per file. A corrupt state file is renamed to `state.corrupt.<timestamp>.json` and detection starts with an empty baseline.
+`state.json` contains metric history plus `correlation.active`, `correlation.candidate`, and `correlation.last_suppressed`. It is written atomically. JSONL files rotate at `results_max_bytes`, `anomalies_max_bytes`, and `incidents_max_bytes`, keeping one `.1` backup per file. A corrupt state file is renamed to `state.corrupt.<timestamp>.json` and detection starts with an empty baseline.
 
 ## Configuration
 
@@ -75,6 +90,15 @@ service:
   min_samples: 15
   consecutive_breaches: 2
   cooldown_seconds: 900
+
+correlation:
+  enabled: true
+  window_seconds: 300
+  min_distinct_metrics: 5
+  max_related_metrics: 5
+  resolve_after_seconds: 300
+  require_critical: false
+  suppress_single_alerts: true
 ```
 
 Metric fields:
@@ -107,7 +131,12 @@ Copy `.env.example` to `.env` for local Docker use.
 | `AI_MODEL_ENABLED` | `true` | Submit due alerts to the AI-model service |
 | `AI_MODEL_URL` | `http://ai-model:8090` | AI-model service base URL |
 | `AI_MODEL_TIMEOUT_SECONDS` | `5` | AI-model submission timeout |
-| `AI_MODEL_WINDOW_SECONDS` | `360` | Evidence window requested from AI-model |
+| `AI_MODEL_WINDOW_SECONDS` | `900` | Evidence window requested from AI-model |
+| `AIOPS_CORRELATION_ENABLED` | `true` | Group related metric breaches into incidents |
+| `AIOPS_CORRELATION_WINDOW_SECONDS` | `300` | Seconds to wait before evaluating an incident candidate |
+| `AIOPS_CORRELATION_MIN_DISTINCT_METRICS` | `5` | Distinct metrics required for an incident |
+| `AIOPS_CORRELATION_MAX_RELATED_METRICS` | `5` | Maximum alerts included in the grouped message |
+| `AIOPS_CORRELATION_RESOLVE_AFTER_SECONDS` | `300` | Quiet period before an active incident resolves |
 | `SLACK_WEBHOOK_URL` | empty | Slack incoming webhook URL |
 | `SLACK_DRY_RUN` | `false` | Log alerts without sending them |
 | `SLACK_CHANNEL` | empty | Optional Slack channel override |
@@ -178,6 +207,7 @@ Check the latest cycle:
 ```bash
 cat aiops/data/latest.json
 tail -n 5 aiops/data/anomalies.jsonl
+tail -n 5 aiops/data/incidents.jsonl
 ```
 
 Check that the 60-second loop is alive:
@@ -193,7 +223,7 @@ Test Slack without sending a real alert:
 SLACK_DRY_RUN=true docker compose -f aiops/docker-compose.yml up -d --force-recreate aiops
 ```
 
-When `heartbeat.json` is updating and `results.jsonl` is growing, the detection loop is working. When an alert fires, check `ai_model_triggered` in the result and inspect `ai-model/data/analyses.jsonl` for the RCA.
+When `heartbeat.json` is updating and `results.jsonl` is growing, the detection loop is working. When an incident is emitted, check `latest.json`, `incidents.jsonl`, and `ai_model_triggered`, then inspect `ai-model/data/analyses.jsonl` for the RCA.
 
 ## CI deployment
 

@@ -1,6 +1,7 @@
 from app.collector import (
     LokiRangeClient,
     PrometheusRangeClient,
+    cluster_logs,
     collect_logs,
     summarize_series,
 )
@@ -91,3 +92,26 @@ def test_summarize_series_downsamples() -> None:
     assert summary["first"] == 0.0
     assert summary["last"] == 19.0
     assert len(summary["points"]) <= 6
+
+
+def test_cluster_logs_groups_repeated_patterns() -> None:
+    logs = [
+        {
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "source": "mern-backend",
+            "line": "ERROR timeout after 1000ms for request 123",
+            "important": True,
+        },
+        {
+            "timestamp": "2026-01-01T00:00:01+00:00",
+            "source": "mern-backend",
+            "line": "ERROR timeout after 2000ms for request 456",
+            "important": True,
+        },
+    ]
+
+    clusters = cluster_logs(logs)
+
+    assert len(clusters) == 1
+    assert clusters[0]["count"] == 2
+    assert clusters[0]["important"] is True

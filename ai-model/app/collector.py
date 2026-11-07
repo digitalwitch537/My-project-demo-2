@@ -386,3 +386,43 @@ def collect_logs(
 
     selected.sort(key=lambda entry: entry["timestamp_ns"])
     return selected, errors
+
+
+def _normalize_log_message(line: str) -> str:
+    text = line.lower()
+    text = re.sub(r"\b[0-9a-f]{8,}\b", "<id>", text)
+    text = re.sub(r"\d+(?:\.\d+)?", "<n>", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:300]
+
+
+def cluster_logs(
+    logs: list[dict[str, Any]],
+    max_clusters: int = 15,
+) -> list[dict[str, Any]]:
+    clusters: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in logs:
+        line = str(entry.get("line", ""))
+        source = str(entry.get("source", "unknown"))
+        key = (source, _normalize_log_message(line))
+        cluster = clusters.setdefault(
+            key,
+            {
+                "source": source,
+                "count": 0,
+                "first_seen": entry.get("timestamp"),
+                "last_seen": entry.get("timestamp"),
+                "important": bool(entry.get("important")),
+                "sample": line[:500],
+            },
+        )
+        cluster["count"] += 1
+        cluster["last_seen"] = entry.get("timestamp")
+        if entry.get("important"):
+            cluster["important"] = True
+
+    ordered = sorted(
+        clusters.values(),
+        key=lambda item: (not item["important"], -int(item["count"])),
+    )
+    return ordered[:max(1, max_clusters)]

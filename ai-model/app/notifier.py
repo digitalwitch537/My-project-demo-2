@@ -37,14 +37,17 @@ class SlackNotifier:
     def send_analysis(self, job: dict[str, Any], result: dict[str, Any]) -> bool:
         payload = job.get("payload") or {}
         metric = payload.get("metric") or {}
+        incident = payload.get("incident") or {}
         analysis = result.get("analysis") or {}
-        title = str(metric.get("title") or metric.get("id") or "Unknown metric")
+        title = self._analysis_title(metric, incident)
         fallback = result.get("status") != "analyzed"
-        label = "AI RCA UNAVAILABLE" if fallback else "AI RCA"
-        text = (
-            f"[{label}] {title}: "
-            f"{analysis.get('root_cause') or 'No root cause determined'}"
-        )
+        if fallback:
+            logger.warning(
+                "Skipped generic Slack RCA for %s because the analysis failed",
+                payload.get("event_id"),
+            )
+            return False
+        text = f"[AI RCA] {title}: {analysis.get('root_cause') or 'unknown'}"
         if not self.enabled:
             logger.info("Slack notifications are disabled")
             return False
@@ -74,6 +77,16 @@ class SlackNotifier:
             return False
         return True
 
+    def _analysis_title(
+        self,
+        metric: dict[str, Any],
+        incident: dict[str, Any],
+    ) -> str:
+        if incident:
+            count = incident.get("metric_count") or len(incident.get("alerts") or [])
+            return f"Correlated incident ({count} metrics)"
+        return str(metric.get("title") or metric.get("id") or "Unknown metric")
+
     def _build_blocks(
         self,
         job: dict[str, Any],
@@ -81,44 +94,58 @@ class SlackNotifier:
     ) -> list[dict[str, Any]]:
         payload = job.get("payload") or {}
         metric = payload.get("metric") or {}
+        incident = payload.get("incident") or {}
         analysis = result.get("analysis") or {}
-        fallback = result.get("status") != "analyzed"
-        title = str(metric.get("title") or metric.get("id") or "Unknown metric")
-        label = "AI RCA UNAVAILABLE" if fallback else "AI RCA"
+        title = self._analysis_title(metric, incident)
         confidence = float(analysis.get("confidence") or 0.0)
         grafana_root_url = (
             self.grafana_root_url
             or str(payload.get("grafana_root_url") or "").rstrip("/")
         )
 
+        fields = [
+            {
+                "type": "mrkdwn",
+                "text": f"*Status:* {_truncate(payload.get('result', {}).get('status', 'unknown'), 80)}",
+            },
+            {
+                "type": "mrkdwn",
+                "text": f"*Confidence:* {confidence:.0%}",
+            },
+            {
+                "type": "mrkdwn",
+                "text": f"*Model:* {_truncate(result.get('model', 'unknown'), 80)}",
+            },
+            {
+                "type": "mrkdwn",
+                "text": f"*Window:* {result.get('window_seconds', 'unknown')}s",
+            },
+        ]
+        if incident:
+            fields.extend(
+                [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Incident:* {_truncate(incident.get('id', 'unknown'), 80)}",
+                    },
+                    {
+                        "type": "mrkdwn",
+                        "text": f"*Metrics:* {incident.get('metric_count', 'unknown')}",
+                    },
+                ]
+            )
+
         blocks: list[dict[str, Any]] = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": _truncate(f"[{label}] {title}", 150),
+                    "text": _truncate(f"[AI RCA] {title}", 150),
                 },
             },
             {
                 "type": "section",
-                "fields": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Status:* {_truncate(payload.get('result', {}).get('status', 'unknown'), 80)}",
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Confidence:* {confidence:.0%}",
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Model:* {_truncate(result.get('model', 'unknown'), 80)}",
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Window:* {result.get('window_seconds', 'unknown')}s",
-                    },
-                ],
+                "fields": fields,
             },
         ]
 
@@ -195,6 +222,10 @@ class SlackNotifier:
             f"Event: {_truncate(result.get('event_id', 'unknown'), 80)}",
             f"Logs collected: {result.get('log_count', 0)}",
         ]
+        if incident:
+            context.append(
+                f"Incident: {_truncate(incident.get('id', 'unknown'), 80)}"
+            )
         if result.get("model_error"):
             context.append(f"Analysis error: {_truncate(result['model_error'], 300)}")
         if grafana_root_url:

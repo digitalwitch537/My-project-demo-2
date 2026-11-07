@@ -77,7 +77,8 @@ def load_config(path: str | Path) -> AppConfig:
         data_dir = (config_path.parent / data_dir).resolve()
 
     log_queries = collection.get("log_queries") or [
-        '{job="docker", container=~"mern-backend|mern-frontend|mern-mongo"}'
+        '{job="docker"}',
+        '{job="system"}',
     ]
 
     return AppConfig(
@@ -100,7 +101,7 @@ def load_config(path: str | Path) -> AppConfig:
             window_seconds=int(
                 os.getenv(
                     "AI_MODEL_WINDOW_SECONDS",
-                    collection.get("window_seconds", 360),
+                    collection.get("window_seconds", 900),
                 )
             ),
             step_seconds=int(
@@ -115,14 +116,14 @@ def load_config(path: str | Path) -> AppConfig:
             max_metric_points=int(
                 os.getenv(
                     "AI_MODEL_MAX_METRIC_POINTS",
-                    collection.get("max_metric_points", 12),
+                    collection.get("max_metric_points", 20),
                 )
             ),
             max_log_lines=int(
-                os.getenv("AI_MODEL_MAX_LOG_LINES", collection.get("max_log_lines", 500))
+                os.getenv("AI_MODEL_MAX_LOG_LINES", collection.get("max_log_lines", 600))
             ),
             max_log_chars=int(
-                os.getenv("AI_MODEL_MAX_LOG_CHARS", collection.get("max_log_chars", 20000))
+                os.getenv("AI_MODEL_MAX_LOG_CHARS", collection.get("max_log_chars", 30000))
             ),
             max_log_line_chars=int(
                 os.getenv(
@@ -140,12 +141,12 @@ def load_config(path: str | Path) -> AppConfig:
             timeout_seconds=float(
                 os.getenv(
                     "OLLAMA_TIMEOUT_SECONDS",
-                    ollama.get("timeout_seconds", 180),
+                    ollama.get("timeout_seconds", 300),
                 )
             ),
-            num_ctx=int(os.getenv("OLLAMA_NUM_CTX", ollama.get("num_ctx", 16384))),
+            num_ctx=int(os.getenv("OLLAMA_NUM_CTX", ollama.get("num_ctx", 20480))),
             num_predict=int(
-                os.getenv("OLLAMA_NUM_PREDICT", ollama.get("num_predict", 800))
+                os.getenv("OLLAMA_NUM_PREDICT", ollama.get("num_predict", 1200))
             ),
             temperature=float(
                 os.getenv("OLLAMA_TEMPERATURE", ollama.get("temperature", 0.1))

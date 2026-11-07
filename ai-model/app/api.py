@@ -15,10 +15,11 @@ from .storage import JobStore
 class AlertPayload(BaseModel):
     event_id: str = Field(min_length=1, max_length=256)
     triggered_at: str
-    window_seconds: int = Field(default=360, ge=30, le=3600)
+    window_seconds: int = Field(default=900, ge=30, le=3600)
     metric: dict[str, Any]
     result: dict[str, Any]
     related_metrics: list[dict[str, Any]] = Field(default_factory=list)
+    incident: dict[str, Any] | None = None
     grafana_root_url: str = ""
 
 

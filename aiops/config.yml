@@ -13,6 +13,16 @@ service:
   request_timeout_seconds: 10
   results_max_bytes: 5242880
   anomalies_max_bytes: 5242880
+  incidents_max_bytes: 5242880
+
+correlation:
+  enabled: true
+  window_seconds: 300
+  min_distinct_metrics: 5
+  max_related_metrics: 5
+  resolve_after_seconds: 300
+  require_critical: false
+  suppress_single_alerts: true
 
 slack:
   enabled: true
@@ -24,7 +34,7 @@ ai_model:
   enabled: true
   url: http://ai-model:8090
   timeout_seconds: 5
-  window_seconds: 360
+  window_seconds: 900
 
 metrics:
   - id: api_request_rate

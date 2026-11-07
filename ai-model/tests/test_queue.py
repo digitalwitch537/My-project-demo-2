@@ -19,6 +19,16 @@ class FailingAnalyzer:
         raise RuntimeError("model unavailable")
 
 
+class FallbackAnalyzer:
+    def analyze(self, job: dict) -> dict:
+        return {
+            "job_id": job["job_id"],
+            "event_id": job["payload"]["event_id"],
+            "status": "fallback",
+            "analysis": {"root_cause": "not determined"},
+        }
+
+
 class FakeNotifier:
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -46,6 +56,21 @@ def test_worker_processes_pending_job(config, alert_payload) -> None:
 
     analyses = (config.data_dir / "analyses.jsonl").read_text(encoding="utf-8")
     assert json.loads(analyses.splitlines()[0])["event_id"] == alert_payload["event_id"]
+
+
+def test_worker_skips_notification_for_fallback_analysis(config, alert_payload) -> None:
+    store = JobStore(config.data_dir)
+    notifier = FakeNotifier()
+    job_id, _ = store.enqueue(alert_payload)
+    worker = AnalysisWorker(config, store, FallbackAnalyzer(), notifier)
+
+    assert worker.run_once() is True
+
+    stored = store.get(job_id)
+    assert stored is not None
+    assert stored["result"]["notification_sent"] is False
+    assert stored["result"]["notification_skipped_reason"] == "analysis_fallback"
+    assert notifier.calls == []
 
 
 def test_worker_records_failure(config, alert_payload) -> None:

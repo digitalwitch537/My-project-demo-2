@@ -58,7 +58,15 @@ class AnalysisWorker:
         job_id = str(job.get("job_id", "unknown"))
         try:
             result = self.analyzer.analyze(job)
-            result["notification_sent"] = self.notifier.send_analysis(job, result)
+            if result.get("status") == "analyzed":
+                result["notification_sent"] = self.notifier.send_analysis(job, result)
+            else:
+                result["notification_sent"] = False
+                result["notification_skipped_reason"] = "analysis_fallback"
+                logger.warning(
+                    "Skipped Slack RCA for job %s because the model analysis failed",
+                    job_id,
+                )
             self.store.complete(job_id, result)
             self.analyses_writer.append(result)
             logger.info("AI analysis completed for job %s", job_id)

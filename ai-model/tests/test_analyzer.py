@@ -87,7 +87,12 @@ def test_analyzer_falls_back_when_ollama_is_unavailable(config, alert_payload) -
         config,
         prometheus=FakePrometheus(),
         loki=FakeLoki(),
-        ollama=FakeOllama([OllamaError("connection refused")]),
+        ollama=FakeOllama(
+            [
+                OllamaError("connection refused"),
+                OllamaError("connection refused retry"),
+            ]
+        ),
     )
 
     result = analyzer.analyze({"job_id": "job-2", "payload": alert_payload})
