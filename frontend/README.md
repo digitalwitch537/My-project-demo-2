@@ -1,8 +1,27 @@
-# React + Vite
+# VELORA Storefront
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The React + Vite frontend for VELORA — a curated ecommerce storefront built with Chakra UI and Zustand.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm install
+npm run dev
+```
+
+The dev server runs at `http://localhost:5173` and proxies `/api` to the backend on port `5000`.
+
+## Scripts
+
+- `npm run dev` — start the development server
+- `npm run build` — create a production build
+- `npm run preview` — preview the production build
+- `npm run lint` — run ESLint
+
+## Storefront routes
+
+- `/` — home, collections, and curated product edit
+- `/studio` — catalog management
+- `/cart` — shopping bag
+- `/checkout` — demo checkout flow
+- `/wishlist` — saved pieces
